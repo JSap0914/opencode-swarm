@@ -893,76 +893,91 @@ describe('test-runner.ts - scope:"all" gated access (allow_full_suite)', () => {
 			15000,
 		);
 
-		test('scope:"all" with allow_full_suite:true and files:[] passes through zero-test-files guard', async () => {
-			// This test verifies that scope:"all" with allow_full_suite:true does NOT get rejected
-			// by the zero-test-files guard when files is an empty array.
+		test('scope:"all" with SWARM_ALLOW_FULL_SUITE=1 and files:[] passes through zero-test-files guard', async () => {
+			// This test verifies that scope:"all" with the required environment opt-in
+			// does NOT get rejected by the zero-test-files guard when files is an empty array.
 			// Uses a temp dir with no framework so we get "No test framework detected"
 			// rather than actually running the project's test suite.
 			const noFrameworkDir = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), 'test-runner-allfiles-')),
 			);
 			const savedCwd = process.cwd();
-			process.chdir(noFrameworkDir);
+			const savedFullSuite = process.env.SWARM_ALLOW_FULL_SUITE;
+			try {
+				process.chdir(noFrameworkDir);
+				process.env.SWARM_ALLOW_FULL_SUITE = '1';
 
-			const result = await test_runner.execute(
-				{ scope: 'all', allow_full_suite: true, files: [] },
-				{} as any,
-			);
-			const parsed = JSON.parse(result);
+				const result = await test_runner.execute(
+					{ scope: 'all', allow_full_suite: true, files: [] },
+					{} as any,
+				);
+				const parsed = JSON.parse(result);
 
-			// Should NOT have the zero-test-files guard error
-			expect(parsed.error).not.toContain(
-				'Provided source files resolved to zero test files',
-			);
-			// Should NOT have the allow_full_suite error
-			expect(parsed.error).not.toContain('allow_full_suite');
-			// Will have "No test framework detected" since there's no framework in temp dir
-			// This proves the code passed through the scope dispatch and reached framework detection
-			expect(parsed.error).toContain('No test framework detected');
-
-			process.chdir(savedCwd);
-			(() => {
+				// Should NOT have the zero-test-files guard error
+				expect(parsed.error).not.toContain(
+					'Provided source files resolved to zero test files',
+				);
+				// Should NOT have the full-suite opt-in error
+				expect(parsed.error).not.toContain('scope "all" is blocked');
+				// Will have "No test framework detected" since there's no framework in temp dir
+				// This proves the code passed through the scope dispatch and reached framework detection
+				expect(parsed.error).toContain('No test framework detected');
+			} finally {
+				if (savedFullSuite === undefined) {
+					delete process.env.SWARM_ALLOW_FULL_SUITE;
+				} else {
+					process.env.SWARM_ALLOW_FULL_SUITE = savedFullSuite;
+				}
+				process.chdir(savedCwd);
 				try {
 					fs.rmSync(noFrameworkDir, { recursive: true, force: true });
 				} catch {
 					/* ignore */
 				}
-			})();
+			}
 		});
 
-		test('scope:"all" with allow_full_suite:true passes through zero-test-files guard', async () => {
-			// Codex Bug 1 fix verification: scope:"all" with allow_full_suite:true and NO files argument
+		test('scope:"all" with SWARM_ALLOW_FULL_SUITE=1 passes through zero-test-files guard', async () => {
+			// Codex Bug 1 fix verification: scope:"all" with the required environment opt-in
+			// and NO files argument.
 			// Uses a temp dir with no framework so we get "No test framework detected"
 			// rather than actually running the project's test suite.
 			const noFrameworkDir = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), 'test-runner-allnofiles-')),
 			);
 			const savedCwd = process.cwd();
-			process.chdir(noFrameworkDir);
+			const savedFullSuite = process.env.SWARM_ALLOW_FULL_SUITE;
+			try {
+				process.chdir(noFrameworkDir);
+				process.env.SWARM_ALLOW_FULL_SUITE = '1';
 
-			const result = await test_runner.execute(
-				{ scope: 'all', allow_full_suite: true },
-				{} as any,
-			);
-			const parsed = JSON.parse(result);
+				const result = await test_runner.execute(
+					{ scope: 'all', allow_full_suite: true },
+					{} as any,
+				);
+				const parsed = JSON.parse(result);
 
-			// Should NOT have the zero-test-files guard error
-			expect(parsed.error).not.toContain(
-				'Provided source files resolved to zero test files',
-			);
-			// Should NOT have the allow_full_suite error
-			expect(parsed.error).not.toContain('allow_full_suite');
-			// Result should be "No test framework detected" (proving it passed through to framework detection)
-			expect(parsed.error).toContain('No test framework detected');
-
-			process.chdir(savedCwd);
-			(() => {
+				// Should NOT have the zero-test-files guard error
+				expect(parsed.error).not.toContain(
+					'Provided source files resolved to zero test files',
+				);
+				// Should NOT have the full-suite opt-in error
+				expect(parsed.error).not.toContain('scope "all" is blocked');
+				// Result should be "No test framework detected" (proving it passed through to framework detection)
+				expect(parsed.error).toContain('No test framework detected');
+			} finally {
+				if (savedFullSuite === undefined) {
+					delete process.env.SWARM_ALLOW_FULL_SUITE;
+				} else {
+					process.env.SWARM_ALLOW_FULL_SUITE = savedFullSuite;
+				}
+				process.chdir(savedCwd);
 				try {
 					fs.rmSync(noFrameworkDir, { recursive: true, force: true });
 				} catch {
 					/* ignore */
 				}
-			})();
+			}
 		});
 
 		test('scope:"all" with allow_full_suite:false returns error', async () => {
@@ -1381,6 +1396,21 @@ describe('test-runner.ts — isLanguageSpecificTestFile', () => {
 			expect(isLanguageSpecificTestFile('testing.kt')).toBe(false);
 		});
 	});
+
+	describe('PHP convention (*Test.php and *Tests.php)', () => {
+		test('recognises FooTest.php', () => {
+			expect(isLanguageSpecificTestFile('FooTest.php')).toBe(true);
+		});
+		test('recognises FooTests.php', () => {
+			expect(isLanguageSpecificTestFile('FooTests.php')).toBe(true);
+		});
+		test('recognises TestFoo.php', () => {
+			expect(isLanguageSpecificTestFile('TestFoo.php')).toBe(true);
+		});
+		test('does not recognise Foo.php (source)', () => {
+			expect(isLanguageSpecificTestFile('Foo.php')).toBe(false);
+		});
+	});
 });
 
 describe('test-runner.ts — getTestFilesFromConvention (language-specific)', () => {
@@ -1533,6 +1563,22 @@ describe('test-runner.ts — getTestFilesFromConvention (language-specific)', ()
 			const testFile = write('tests/FooTests.cs', '');
 			const result = getTestFilesFromConvention([testFile]);
 			expect(result).toEqual([testFile]);
+		});
+	});
+
+	describe('PHP source-to-test mapping', () => {
+		test('User.php maps to colocated UserTest.php when it exists', () => {
+			const src = write('app/User.php', '');
+			const tst = write('app/UserTest.php', '');
+			const result = getTestFilesFromConvention([src], tmpDir);
+			expect(result).toContain(tst);
+		});
+
+		test('User.php maps to repo-root tests/UserTest.php when colocated missing', () => {
+			const src = write('app/User.php', '');
+			const tst = write('tests/UserTest.php', '');
+			const result = getTestFilesFromConvention([src], tmpDir);
+			expect(result).toContain(tst);
 		});
 	});
 
@@ -1864,39 +1910,39 @@ describe('test-runner.ts - MAX_SAFE_SOURCE_FILES pre-discovery guard', () => {
 			fs.mkdtempSync(path.join(os.tmpdir(), 'test-runner-conv-1src1tst-')),
 		);
 		const originalCwd = process.cwd();
-		process.chdir(tempDir);
+		try {
+			process.chdir(tempDir);
 
-		fs.writeFileSync(
-			'package.json',
-			JSON.stringify({
-				scripts: { test: 'vitest run' },
-				devDependencies: { vitest: '^1.0.0' },
-			}),
-		);
-		fs.mkdirSync('src', { recursive: true });
-		fs.writeFileSync('src/utils.ts', 'export const x = 1;');
-		fs.writeFileSync(
-			'src/utils.test.ts',
-			'import { x } from "./utils"; export const v = x;',
-		);
+			fs.writeFileSync(
+				'package.json',
+				JSON.stringify({
+					scripts: { test: 'bun test' },
+				}),
+			);
+			fs.mkdirSync('src', { recursive: true });
+			fs.writeFileSync('src/utils.ts', 'export const x = 1;');
+			fs.writeFileSync(
+				'src/utils.test.ts',
+				'import { expect, test } from "bun:test"; import { x } from "./utils"; test("x", () => expect(x).toBe(1));',
+			);
 
-		const result = await test_runner.execute(
-			{ scope: 'convention', files: ['src/utils.ts', 'src/utils.test.ts'] },
-			{} as any,
-		);
-		const parsed = JSON.parse(result);
+			const result = await test_runner.execute(
+				{ scope: 'convention', files: ['src/utils.ts', 'src/utils.test.ts'] },
+				{} as any,
+			);
+			const parsed = JSON.parse(result);
 
-		// Must NOT hit the source-file guard (1 source file is within limit)
-		expect(parsed.error).not.toContain('accepts at most');
-
-		process.chdir(originalCwd);
-		(() => {
+			// Must NOT hit the source-file guard (1 source file is within limit)
+			expect(parsed.outcome).not.toBe('scope_exceeded');
+			expect(String(parsed.error ?? '')).not.toContain('accepts at most');
+		} finally {
+			process.chdir(originalCwd);
 			try {
 				fs.rmSync(tempDir, { recursive: true, force: true });
 			} catch {
 				/* ignore */
 			}
-		})();
+		}
 	}, 15000);
 
 	test('scope "all" blocked error does not recommend "graph" with multiple files', async () => {
