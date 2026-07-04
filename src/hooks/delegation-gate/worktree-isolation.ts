@@ -43,6 +43,8 @@ export interface StandardWorktreeDispatch {
 	planTaskId?: string;
 	handle: WorktreeHandle;
 	mergeStrategy: 'merge' | 'rebase' | 'cherry-pick';
+	/** Configured worktree-dir override, so cleanup trusts the same base. */
+	worktree_dir?: string;
 }
 
 export const standardWorktreeByCallID = new Map<
@@ -140,7 +142,7 @@ export function sanitizeWorktreeTaskId(raw: string): string {
 	return sanitized || 'task';
 }
 
-function resolveWorktreeIsolationConfig(
+export function resolveWorktreeIsolationConfig(
 	config: PluginConfig,
 ): WorktreeIsolationConfig {
 	if (config.worktree) {
@@ -247,7 +249,10 @@ export async function precreateStandardWorktreeSession(args: {
 	});
 	if (!createResult.data?.id) {
 		await _internals
-			.removeWorktree(provisionResult.worktreePath, args.directory)
+			.removeWorktree(provisionResult.worktreePath, args.directory, {
+				force: true,
+				worktreeDir: worktreeConfig.worktree_dir,
+			})
 			.catch(() => {});
 		const createError = (createResult as { error?: unknown }).error;
 		const detail =
@@ -271,6 +276,7 @@ export async function precreateStandardWorktreeSession(args: {
 		planTaskId: args.planTaskId,
 		handle: provisionResult,
 		mergeStrategy: worktreeConfig.merge_strategy,
+		worktree_dir: worktreeConfig.worktree_dir,
 	});
 }
 
@@ -294,7 +300,10 @@ export async function finishStandardWorktreeDispatch(
 			// successful re-dispatch re-enables Rule 2's marker commit.
 			clearWorktreeMergeStatus(statusKey);
 			await _internals
-				.removeWorktree(dispatch.handle.worktreePath, directory)
+				.removeWorktree(dispatch.handle.worktreePath, directory, {
+					force: true,
+					worktreeDir: dispatch.worktree_dir,
+				})
 				.catch(() => {});
 			await _internals
 				.postMergeCleanup(directory, dispatch.handle.branchName)
